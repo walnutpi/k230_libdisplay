@@ -19,6 +19,7 @@
 #include <display.h>
 #include <cerrno>
 #include <tuple>
+#include <optional>
 
 // base on DMA-BUF
 namespace pipeline {
