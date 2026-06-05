@@ -1,0 +1,28 @@
+From 40cb14c1ca92bf242830288853b7e91092c15d6f Mon Sep 17 00:00:00 2001
+From: sc-bin <3335447573@qq.com>
+Date: Fri, 5 Jun 2026 13:37:37 +0800
+Subject: [PATCH] k23_display:modify input format to rgb
+
+---
+ .../package/python-k230/k230_display/k230_display_pybind.cpp  | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/buildroot-overlay/package/python-k230/k230_display/k230_display_pybind.cpp b/buildroot-overlay/package/python-k230/k230_display/k230_display_pybind.cpp
+index db19f12..ae1394b 100644
+--- a/buildroot-overlay/package/python-k230/k230_display/k230_display_pybind.cpp
++++ b/buildroot-overlay/package/python-k230/k230_display/k230_display_pybind.cpp
+@@ -70,9 +70,9 @@ static void rotate90_clockwise_rvv_block(const cv::Mat& src, cv::Mat& dst, int b
+                     vuint8m1_t v_r = __riscv_vlse8_v_u8m1(sptr + 2, 3, vl);
+ 
+                     // 跨步存储写入目标列：目标内存中纵向相隔 dst_stride 个字节
+-                    __riscv_vsse8_v_u8m1(dptr + 0, dst_stride, v_b, vl);
++                    __riscv_vsse8_v_u8m1(dptr + 0, dst_stride, v_r, vl);
+                     __riscv_vsse8_v_u8m1(dptr + 1, dst_stride, v_g, vl);
+-                    __riscv_vsse8_v_u8m1(dptr + 2, dst_stride, v_r, vl);
++                    __riscv_vsse8_v_u8m1(dptr + 2, dst_stride, v_b, vl);
+ 
+                     sptr += vl * 3;          // 源指针横向右移
+                     dptr += vl * dst_stride; // 目标指针纵向垂直下移
+-- 
+2.34.1
+

@@ -1,0 +1,2 @@
+## k230_display
+本文件夹下保存的patch文件适用于 k230_linux_sdk 项目，修改目标源码从接受rgb格式输入改为接受bgr格式输入，以配合opencv
