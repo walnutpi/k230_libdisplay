@@ -1,4 +1,5 @@
 #include "display.h"
+#include <assert.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -41,9 +42,11 @@ struct display* display_init(unsigned device) {
     drmModeEncoder *enc = NULL;
 
     display = malloc(sizeof(*display));
+    memset(display, 0 ,sizeof(*display));
     display->planes = NULL;
     display->commitFlags = 0;
     display->req = NULL;
+    display->drm_rotation = rotation_0;
 
     snprintf(filename, sizeof(filename), "/dev/dri/card%u", device);
     display->fd = open(filename, O_RDWR | O_CLOEXEC);
@@ -93,7 +96,7 @@ struct display* display_init(unsigned device) {
     display->mmHeight = conn->mmHeight;
 
     for (i = 0; i < conn->count_modes; i++) {
-        if (conn->modes[i].hdisplay <= 1920 && conn->modes[i].vdisplay <= 1080 && conn->modes[i].vrefresh <= 60)
+        if (conn->modes[i].hdisplay <= 1920 && conn->modes[i].vdisplay <= 1280 && conn->modes[i].vrefresh <= 65)
             break;
     }
     if (i == conn->count_modes) {
@@ -312,7 +315,7 @@ struct display_plane* display_get_plane(struct display* display, unsigned int fo
                     else {
                         goto found_plane;
                     }
-                    
+
                 }
                 else {
                     goto found_plane;
@@ -399,6 +402,7 @@ struct display_buffer* display_allocate_buffer(struct display_plane* plane, uint
 
     // get dmabuf fd
     memset(&prime, 0, sizeof prime);
+    prime.fd = -1;
     prime.handle = creq.handle;
     CKE(ioctl(display->fd, DRM_IOCTL_PRIME_HANDLE_TO_FD, &prime), free_dumb);
 
@@ -437,13 +441,16 @@ struct display_buffer* display_allocate_buffer(struct display_plane* plane, uint
     buffer->next = plane->buffers;
     plane->buffers = buffer;
     buffer->drm_rotation = plane->drm_rotation;
-
     return buffer;
 
 munmap:
     free(buffer);
     munmap(map, creq.size);
 free_dumb:
+    if (prime.fd >= 0) {
+        close(prime.fd);
+        prime.fd = -1;
+    }
     memset(&destroy, 0, sizeof(destroy));
     destroy.handle = creq.handle;
     drmIoctl(display->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy);
@@ -459,7 +466,16 @@ void display_free_buffer(struct display_buffer* buffer) {
     struct display* d = p->display;
     struct drm_mode_destroy_dumb destroy;
 
-    munmap(buffer->map, buffer->size);
+    if (buffer->map != NULL) {
+        munmap(buffer->map, buffer->size);
+    }
+    if (buffer->id != 0) {
+        drmModeRmFB(d->fd, buffer->id);
+    }
+    if (buffer->dmabuf_fd >= 0) {
+        close(buffer->dmabuf_fd);
+        buffer->dmabuf_fd = -1;
+    }
     memset(&destroy, 0, sizeof(destroy));
     destroy.handle = buffer->handle;
     drmIoctl(d->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy);
@@ -489,6 +505,16 @@ static uint32_t get_plane_property_id(const struct display_plane* plane, const c
     }
     pr("plane prop %s not found", name);
     return 0xDEADDEAD;
+}
+
+static bool plane_has_property(const struct display_plane* plane, const char* name) {
+    for (unsigned i = 0; i < plane->props_count; i++) {
+        if (plane->props[i] && strcmp(name, plane->props[i]->name) == 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static uint32_t get_crtc_property_id(const struct display* display, const char* name) {
@@ -527,6 +553,25 @@ static int drm_add_plane_property(const struct display_plane* plane, drmModeAtom
     }
 
     return 0;
+}
+
+static uint64_t drm_rotation_property_value(enum drm_rotation rotation) {
+    switch (rotation) {
+        case rotation_0:
+            return DRM_MODE_ROTATE_0;
+        case rotation_90:
+            return DRM_MODE_ROTATE_90;
+        case rotation_180:
+            return DRM_MODE_ROTATE_180;
+        case rotation_270:
+            return DRM_MODE_ROTATE_270;
+        case rotation_reflect_x:
+            return DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_X;
+        case rotation_reflect_y:
+            return DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y;
+        default:
+            return DRM_MODE_ROTATE_0;
+    }
 }
 
 static int drm_add_crtc_property(const struct display* display, drmModeAtomicReqPtr req, const char *name, uint64_t value)
@@ -593,15 +638,11 @@ int display_update_buffer(struct display_buffer* buffer, uint32_t x, uint32_t y)
     drm_add_plane_property(plane, display->req, "CRTC_W", buffer->width);
     drm_add_plane_property(plane, display->req, "CRTC_H", buffer->height);
 
-    if(buffer->plane->fourcc == DRM_FORMAT_NV12)
-    {
-        if(buffer->drm_rotation == rotation_90)
-            drm_add_plane_property(plane, display->req, "rotation", 0x2);
-
-        if(buffer->drm_rotation == rotation_270)
-            drm_add_plane_property(plane, display->req, "rotation", 0x8);
-
+    if (plane_has_property(plane, "rotation")) {
+        drm_add_plane_property(plane, display->req, "rotation",
+                drm_rotation_property_value(buffer->drm_rotation));
     }
+
     return 0;
 }
 
@@ -617,9 +658,9 @@ int display_commit(struct display* display) {
         drmModeAtomicFree(display->req);
         display->req = NULL;
         return -1;
-        
+
     }
-    
+
     return 0;
 }
 
@@ -627,8 +668,17 @@ int display_commit_buffer(const struct display_buffer* buffer, uint32_t x, uint3
     uint32_t flags = DRM_MODE_PAGE_FLIP_EVENT;
     struct display_plane* plane = buffer->plane;
     struct display* display = plane->display;
-    drmModeAtomicReqPtr req = drmModeAtomicAlloc();
-    display->req = req;
+    drmModeAtomicReqPtr req = NULL;
+
+
+    if(display->req == NULL)
+        display->req = drmModeAtomicAlloc();
+    if (!display->req) {
+        printf("malloc error\n");
+        return -ENOMEM;
+    }
+
+    req = display->req;
 
     if (plane->first) {
         drm_add_conn_property(display, req, "CRTC_ID", display->crtc_id);
@@ -650,12 +700,18 @@ int display_commit_buffer(const struct display_buffer* buffer, uint32_t x, uint3
     drm_add_plane_property(plane, req, "CRTC_W", buffer->width);
     drm_add_plane_property(plane, req, "CRTC_H", buffer->height);
 
+    if (plane_has_property(plane, "rotation")) {
+        drm_add_plane_property(plane, req, "rotation",
+                drm_rotation_property_value(buffer->drm_rotation));
+    }
+
     CKE(drmModeAtomicCommit(display->fd, req, flags, NULL), error);
 
     return 0;
 
 error:
     drmModeAtomicFree(req);
+    display->req = NULL;
     return -1;
 }
 
@@ -692,4 +748,52 @@ void display_handle_vsync(struct display* display) {
     drmHandleEvent(display->fd, &display->drm_event_ctx);
     drmModeAtomicFree(display->req);
     display->req = NULL;
+}
+
+// 等待下一帧 vsync
+static int wait_for_next_vblank(int fd) {
+    drmVBlank vblank = {};
+    vblank.request.type = DRM_VBLANK_RELATIVE;
+    vblank.request.sequence = 1;  // 等待下一个 vblank
+    vblank.request.signal = 0;
+    return drmWaitVBlank(fd, &vblank);
+}
+
+int display_commit_buffer_noblock(const struct display_buffer* buffer, uint32_t x, uint32_t y) {
+    int ret = 0;
+    uint32_t flags = DRM_MODE_ATOMIC_NONBLOCK;
+    struct display_plane* plane = buffer->plane;
+    struct display* display = plane->display;
+    drmModeAtomicReqPtr req = drmModeAtomicAlloc();
+    assert(req);
+
+    if (plane->first) {
+        drm_add_conn_property(display, req, "CRTC_ID", display->crtc_id);
+        drm_add_crtc_property(display, req, "MODE_ID", display->blob_id);
+        drm_add_crtc_property(display, req, "ACTIVE", 1);
+        flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
+        plane->first = false;
+    }
+    drm_add_plane_property(plane, req, "FB_ID", buffer->id);
+    drm_add_plane_property(plane, req, "CRTC_ID", display->crtc_id);
+    drm_add_plane_property(plane, req, "SRC_X", 0);
+    drm_add_plane_property(plane, req, "SRC_Y", 0);
+    drm_add_plane_property(plane, req, "SRC_W", buffer->width << 16);
+    drm_add_plane_property(plane, req, "SRC_H", buffer->height << 16);
+    drm_add_plane_property(plane, req, "CRTC_X", x);
+    drm_add_plane_property(plane, req, "CRTC_Y", y);
+    drm_add_plane_property(plane, req, "CRTC_W", buffer->width);
+    drm_add_plane_property(plane, req, "CRTC_H", buffer->height);
+
+    if(-EBUSY == drmModeAtomicCommit(display->fd, req, flags, NULL)){
+        wait_for_next_vblank(display->fd);
+        CKE(drmModeAtomicCommit(display->fd, req, flags, NULL), error);
+    }
+
+    drmModeAtomicFree(req);
+    return 0;
+
+error:
+    drmModeAtomicFree(req);
+    return -1;
 }

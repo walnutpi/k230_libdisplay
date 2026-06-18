@@ -15,11 +15,13 @@ extern "C" {
 #define DISPLAY_QUEUE_DEPTH 3
 
 
-enum drm_rotation{
+enum drm_rotation {
     rotation_0 = 0,
     rotation_90 = 1,
     rotation_180 = 2,
     rotation_270 = 3,
+    rotation_reflect_x = 4,
+    rotation_reflect_y = 5,
 };
 struct display {
     int fd;
@@ -38,7 +40,7 @@ struct display {
     uint32_t commitFlags;
     drmEventContext drm_event_ctx;
     enum drm_rotation drm_rotation;
-    struct display_plane* planes;
+    struct display_plane* planes; //plane链表头
 };
 
 
@@ -81,7 +83,7 @@ int display_update_buffer(struct display_buffer* buffer, uint32_t x, uint32_t y)
 int display_commit(struct display* display);
 void display_wait_vsync(struct display* display);
 void display_handle_vsync(struct display* display);
-
+int display_commit_buffer_noblock(const struct display_buffer* buffer, uint32_t x, uint32_t y);
 #ifdef __cplusplus
 }
 #endif
