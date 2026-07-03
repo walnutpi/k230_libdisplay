@@ -785,6 +785,11 @@ int display_commit_buffer_noblock(const struct display_buffer* buffer, uint32_t 
     drm_add_plane_property(plane, req, "CRTC_W", buffer->width);
     drm_add_plane_property(plane, req, "CRTC_H", buffer->height);
 
+    if (plane_has_property(plane, "rotation")) {
+        drm_add_plane_property(plane, req, "rotation",
+                drm_rotation_property_value(buffer->drm_rotation));
+    }
+
     if(-EBUSY == drmModeAtomicCommit(display->fd, req, flags, NULL)){
         wait_for_next_vblank(display->fd);
         CKE(drmModeAtomicCommit(display->fd, req, flags, NULL), error);

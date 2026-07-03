@@ -20,6 +20,11 @@ ROTATION_270 = 3
 ROTATION_REFLECT_X = 4
 ROTATION_REFLECT_Y = 5
 
+# DRM 格式常量
+DRM_FORMAT_ARGB8888 = 0x34325241
+DRM_FORMAT_BGR888 = 0x34324742
+DRM_FORMAT_RGB888 = 0x34324752
+
 _NAME_MAP = {
     ROTATION_0: "0°",
     ROTATION_90: "90°",
@@ -209,9 +214,39 @@ def display_wait_vsync(d: POINTER(_Display)) -> None:
 def display_commit_buffer_noblock(
     buf: POINTER(_DisplayBuffer), x: int = 0, y: int = 0,
 ) -> int:
-    """非阻塞提交 buffer，不等 vsync 立即返回。
-
-    Returns:
-        0 成功, -1 失败（调用方应稍后重试）
-    """
+    """非阻塞提交 buffer，不等 vsync 立即返回。"""
     return _ensure_loaded().display_commit_buffer_noblock(buf, x, y)
+
+
+# ── drmWaitVBlank（来自 libdrm，不依赖 page flip 事件） ──
+
+class _drmVBlank(Structure):
+    _fields_ = [
+        ("type", c_uint32),
+        ("sequence", c_uint32),
+        ("signal", c_uint32),
+        ("_pad", c_uint32),
+    ]
+
+_DRM_VBLANK_RELATIVE = 1
+
+_libdrm: Optional[CDLL] = None
+
+
+def _ensure_libdrm() -> CDLL:
+    global _libdrm
+    if _libdrm is not None:
+        return _libdrm
+    _libdrm = CDLL("libdrm.so.2")
+    _libdrm.drmWaitVBlank.argtypes = [c_int, POINTER(_drmVBlank)]
+    _libdrm.drmWaitVBlank.restype = c_int
+    return _libdrm
+
+
+def wait_vblank(fd: int) -> None:
+    """等待下一个 vblank（drmWaitVBlank ioctl）"""
+    vbl = _drmVBlank()
+    vbl.type = _DRM_VBLANK_RELATIVE
+    vbl.sequence = 1
+    vbl.signal = 0
+    _ensure_libdrm().drmWaitVBlank(fd, ctypes.byref(vbl))
