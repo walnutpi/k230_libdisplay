@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Display"
+version = "0.1.0"
+description = "K230 Display Python 库"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "K230 Display Contributors" },
+]
+requires-python = ">=3.7"
+dependencies = [
+    "numpy>=1.19.0",
+]
+keywords = ["k230", "display"]
+
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["Display*"]
