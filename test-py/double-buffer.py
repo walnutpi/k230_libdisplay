@@ -11,7 +11,7 @@ double-buffer.py — 全屏红黑交替显示示例（双缓冲 + FPS 统计）
 import time
 import signal
 import numpy as np
-from Display import init, show, get_size, set_rotation
+from Display import init, show, get_size, get_show_size, set_rotation
 
 g_running = True
 
@@ -26,13 +26,14 @@ signal.signal(signal.SIGINT, sigint_handler)
 
 def main():
     init()
-    set_rotation(0)
     w, h = get_size()
-    print(f"显示分辨率: {w}x{h}")
+    sw, sh = get_show_size()
+    set_rotation(0)
+    print(f"显示分辨率: {w}x{h}  show尺寸: {sw}x{sh}")
 
-    # 预生成红色和黑色帧
-    red_frame = np.full((h, w, 3), (0, 0, 255), dtype=np.uint8)
-    black_frame = np.zeros((h, w, 3), dtype=np.uint8)
+    # 预生成红色和黑色帧（使用 show() 期望的尺寸）
+    red_frame = np.full((sh, sw, 3), (0, 0, 255), dtype=np.uint8)
+    black_frame = np.zeros((sh, sw, 3), dtype=np.uint8)
 
     frame_count = 0
     last_fps_time = time.monotonic()

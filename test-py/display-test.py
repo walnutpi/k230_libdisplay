@@ -17,7 +17,7 @@ import time
 import signal
 import sys
 import numpy as np
-from Display import init, show, get_size, set_rotation
+from Display import init, show, get_size, get_show_size, set_rotation
 
 # ── 全局运行标志 ──────────────────────────────────────────
 g_running = True
@@ -203,14 +203,15 @@ PATTERNS = [
 def main():
     init()
     w, h = get_size()
+    sw, sh = get_show_size()
     set_rotation(0)
     print(f"===== K230 Display Test =====")
-    print(f"显示分辨率: {w}x{h}")
+    print(f"显示分辨率: {w}x{h}  show尺寸: {sw}x{sh}")
     print(f"共 {len(PATTERNS)} 种测试图形, 每 3 秒切换")
     print()
 
-    # 预生成所有图案
-    frames = [draw_fn(w, h) for _, draw_fn in PATTERNS]
+    # 预生成所有图案（使用 show() 期望的尺寸）
+    frames = [draw_fn(sw, sh) for _, draw_fn in PATTERNS]
 
     pattern_idx = 0
     last_switch = time.monotonic()

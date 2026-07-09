@@ -16,7 +16,7 @@ rotation-test.py — 屏幕旋转测试程序
 import time
 import signal
 import numpy as np
-from Display import init, show, get_size, set_rotation, ROTATION_0
+from Display import init, show, get_size, get_show_size, set_rotation, ROTATION_0
 
 g_running = True
 
@@ -97,7 +97,8 @@ def main():
     print(f"旋转: {ROTATION_NAMES[rotations[rot_idx]]}")
 
     set_rotation(rotations[rot_idx])
-    show(img_portrait)
+    sw, sh = get_show_size()
+    show(img_landscape if sw > sh else img_portrait)
 
     while g_running:
         time.sleep(3)
@@ -107,8 +108,9 @@ def main():
         rot_idx = (rot_idx + 1) % len(rotations)
         set_rotation(rotations[rot_idx])
 
-        # 90° 或 270° 时显示横屏图像，否则显示竖屏
-        is_landscape = (rotations[rot_idx] in (1, 3))
+        # 通过 get_show_size() 判断当前 show() 期望的图像尺寸
+        sw, sh = get_show_size()
+        is_landscape = (sw > sh)
         show(img_landscape if is_landscape else img_portrait)
 
         print(f"旋转: {ROTATION_NAMES[rotations[rot_idx]]}")

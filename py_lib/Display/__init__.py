@@ -6,6 +6,7 @@ import ctypes
 import time
 import numpy as np
 from typing import Tuple
+import cv2
 
 from ._bindings import (
     display_init as _c_init,
@@ -44,12 +45,14 @@ _land_work = None
 _land_dst_base: list = []
 
 _rotation = ROTATION_0
+_actual_rotation = ROTATION_0
+_rotation_offset = 0
 
 
 def init() -> None:
     """初始化屏幕，优先使用 BGR888 格式（零通道转换）"""
     global _display, _plane, _front, _initialized, _bgr888
-    global _w, _h, _port_buf, _land_buf, _rotation
+    global _w, _h, _port_buf, _land_buf, _rotation, _actual_rotation, _rotation_offset
     global _port_work, _port_dst_base, _land_work, _land_dst_base
 
     if _initialized:
@@ -72,6 +75,7 @@ def init() -> None:
     _w = _display.contents.width
     _h = _display.contents.height
     is_portrait = (_w < _h)
+    _rotation_offset = 1 if is_portrait else 0
 
     # ── 竖屏双缓冲 ──
     for _ in range(2):
@@ -99,11 +103,11 @@ def init() -> None:
         _land_work = np.empty((_w, _h, 4), dtype=np.uint8)
 
     # 首帧：noblock 提交 + 等一个 vblank
-    if is_portrait:
-        _rotation = ROTATION_90
+    _rotation = ROTATION_0
+    _actual_rotation = (ROTATION_0 + _rotation_offset) % 4
+    if _actual_rotation in (ROTATION_90, ROTATION_270):
         _c_commit_noblock(_land_buf[0], 0, 0)
     else:
-        _rotation = ROTATION_0
         _c_commit_noblock(_port_buf[0], 0, 0)
     _c_wait_vblank(_display.contents.fd)
 
@@ -130,20 +134,23 @@ def show(img: np.ndarray) -> None:
         raise ValueError(f"图像数据类型必须为 uint8，当前为 {img.dtype}")
 
     h, w = img.shape[:2]
-    swap = (_rotation == ROTATION_90 or _rotation == ROTATION_270)
+    swap = (_actual_rotation == ROTATION_90 or _actual_rotation == ROTATION_270)
 
     if swap:
-        if w != _h or h != _w:
-            raise ValueError(f"当前旋转 {_rotation}° 期望横屏图像 {_h}x{_w}，当前为 {w}x{h}")
+        target_w, target_h = _h, _w
         bufs = _land_buf
         work = _land_work
         dst_list = _land_dst_base
     else:
-        if w != _w or h != _h:
-            raise ValueError(f"当前旋转 {_rotation}° 期望竖屏图像 {_w}x{_h}，当前为 {w}x{h}")
+        target_w, target_h = _w, _h
         bufs = _port_buf
         work = _port_work
         dst_list = _port_dst_base
+
+    # ── 自动缩放：如果输入图像尺寸不匹配，用 OpenCV resize ──
+    if w != target_w or h != target_h:
+        img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+        h, w = target_h, target_w
 
     t0 = time.perf_counter()
 
@@ -209,9 +216,22 @@ def get_size() -> Tuple[int, int]:
 
 
 def get_rotation() -> int:
-    """获取当前设置的旋转角度"""
+    """获取当前设置的旋转角度（用户视角）"""
     _ensure_init()
     return _rotation
+
+
+def get_show_size() -> Tuple[int, int]:
+    """获取当前 show() 期望输入的图像尺寸 (width, height)
+
+    根据当前旋转设置和物理屏幕方向，返回 show() 期望的图像尺寸。
+    生成图像时请使用此尺寸，而非物理分辨率。
+    """
+    _ensure_init()
+    swap = (_actual_rotation == ROTATION_90 or _actual_rotation == ROTATION_270)
+    if swap:
+        return _h, _w   # 期望横屏图像
+    return _w, _h       # 期望竖屏图像
 
 
 def set_rotation(rotation: int) -> None:
@@ -220,8 +240,11 @@ def set_rotation(rotation: int) -> None:
     决定后续 show() 期望的图像方向：
       ROTATION_0/180 → 竖屏图像 (phys_w x phys_h)
       ROTATION_90/270 → 横屏图像 (phys_h x phys_w)
+
+    注：内部会自动根据物理屏幕方向做偏移，用户传入的值
+    在横屏和竖屏屏幕上产生一致的显示效果。
     """
-    global _rotation
+    global _rotation, _actual_rotation
     _ensure_init()
     if rotation not in (ROTATION_0, ROTATION_90, ROTATION_180, ROTATION_270):
         raise ValueError(
@@ -230,13 +253,14 @@ def set_rotation(rotation: int) -> None:
         )
 
     _rotation = rotation
+    _actual_rotation = (rotation + _rotation_offset) % 4
 
-    # 更新 buffer 组的 drm_rotation
-    swap = (rotation == ROTATION_90 or rotation == ROTATION_270)
+    # 更新 buffer 组的 drm_rotation（用实际硬件 rotation）
+    swap = (_actual_rotation == ROTATION_90 or _actual_rotation == ROTATION_270)
     if swap:
         for b in _land_buf:
-            b.contents.drm_rotation = rotation
+            b.contents.drm_rotation = _actual_rotation
     else:
         for b in _port_buf:
-            b.contents.drm_rotation = rotation
+            b.contents.drm_rotation = _actual_rotation
 
