@@ -104,7 +104,8 @@ def init() -> None:
 
     # 首帧：noblock 提交 + 等一个 vblank
     _rotation = ROTATION_0
-    _actual_rotation = (ROTATION_0 + _rotation_offset) % 4
+    # 用户 0°（逆时针语义）→ 硬件 rotation，叠加物理偏移
+    _actual_rotation = ((4 - ROTATION_0) % 4 + _rotation_offset) % 4
     if _actual_rotation in (ROTATION_90, ROTATION_270):
         _c_commit_noblock(_land_buf[0], 0, 0)
     else:
@@ -253,7 +254,9 @@ def set_rotation(rotation: int) -> None:
         )
 
     _rotation = rotation
-    _actual_rotation = (rotation + _rotation_offset) % 4
+    # 逆时针语义：用户 1（逆90°）→ 硬件 ROTATE_270（顺270°）
+    # 再叠加物理屏幕方向偏移
+    _actual_rotation = ((4 - rotation) % 4 + _rotation_offset) % 4
 
     # 更新 buffer 组的 drm_rotation（用实际硬件 rotation）
     swap = (_actual_rotation == ROTATION_90 or _actual_rotation == ROTATION_270)
