@@ -50,7 +50,7 @@ _rotation_offset = 0
 
 
 def init() -> None:
-    """初始化屏幕，优先使用 BGR888 格式（零通道转换）"""
+    """初始化屏幕"""
     global _display, _plane, _front, _initialized, _bgr888
     global _w, _h, _port_buf, _land_buf, _rotation, _actual_rotation, _rotation_offset
     global _port_work, _port_dst_base, _land_work, _land_dst_base
@@ -220,6 +220,11 @@ def get_height() -> int:
 
 
 def get_size() -> Tuple[int, int]:
+    """获取屏幕物理尺寸
+    返回:
+        屏幕尺寸元组 (width, height)
+    """
+    _ensure_init()
     return get_width(), get_height()
 
 
@@ -248,17 +253,11 @@ def get_show_size() -> Tuple[int, int]:
 
 
 def set_rotation(rotation: int) -> None:
-    """设置旋转角度
+    """设置显示角度
     
-    决定后续 show() 期望的图像方向：
-      ROTATION_0/180 → 竖屏图像 (phys_w x phys_h)
-      ROTATION_90/270 → 横屏图像 (phys_h x phys_w)
+    参数:
+        rotation: 旋转角度, 0, 1, 2, 3对应 0°, 90°, 180°, 270°
 
-    注：内部会自动根据物理屏幕方向做偏移，用户传入的值
-    在横屏和竖屏屏幕上产生一致的显示效果。
-
-    参数：
-      rotation: 旋转角度，可用 0, 90, 180, 270
     """
     global _rotation, _actual_rotation
     _ensure_init()
