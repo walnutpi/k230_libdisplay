@@ -1,5 +1,5 @@
 """
-K230 Display Python 库 — BGR888 优先，零通道转换
+将图像显示到屏幕上的库
 """
 
 import ctypes
@@ -120,9 +120,10 @@ def init() -> None:
 
 def show(img: np.ndarray) -> None:
     """显示图像
-
-    rotation=0/180° → 期望竖屏 (phys_w x phys_h)
-    rotation=90/270° → 期望横屏 (phys_h x phys_w)
+    参数:
+        img: opencv格式的图像(bgr排列)
+    返回:
+        None
     """
     global _front
 
@@ -201,13 +202,19 @@ def flush() -> None:
 
 
 def get_width() -> int:
-    """获取屏幕物理宽度（像素）"""
+    """获取屏幕物理宽度
+    返回:
+        屏幕宽度（像素）
+    """
     _ensure_init()
     return _w
 
 
 def get_height() -> int:
-    """获取屏幕物理高度（像素）"""
+    """获取屏幕物理高度
+    返回:
+        屏幕高度（像素）
+    """
     _ensure_init()
     return _h
 
@@ -217,16 +224,21 @@ def get_size() -> Tuple[int, int]:
 
 
 def get_rotation() -> int:
-    """获取当前设置的旋转角度（用户视角）"""
+    """获取当前设置的旋转角度
+    返回:
+        0: 0°
+        1: 90°
+        2: 180°
+        3: 270°
+    """
     _ensure_init()
     return _rotation
 
 
 def get_show_size() -> Tuple[int, int]:
     """获取当前 show() 期望输入的图像尺寸 (width, height)
-
-    根据当前旋转设置和物理屏幕方向，返回 show() 期望的图像尺寸。
-    生成图像时请使用此尺寸，而非物理分辨率。
+    返回:
+        图像尺寸元组 (width, height)
     """
     _ensure_init()
     swap = (_actual_rotation == ROTATION_90 or _actual_rotation == ROTATION_270)
@@ -237,13 +249,16 @@ def get_show_size() -> Tuple[int, int]:
 
 def set_rotation(rotation: int) -> None:
     """设置旋转角度
-
+    
     决定后续 show() 期望的图像方向：
       ROTATION_0/180 → 竖屏图像 (phys_w x phys_h)
       ROTATION_90/270 → 横屏图像 (phys_h x phys_w)
 
     注：内部会自动根据物理屏幕方向做偏移，用户传入的值
     在横屏和竖屏屏幕上产生一致的显示效果。
+
+    参数：
+      rotation: 旋转角度，可用 0, 90, 180, 270
     """
     global _rotation, _actual_rotation
     _ensure_init()
